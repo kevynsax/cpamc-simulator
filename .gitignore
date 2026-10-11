@@ -1,0 +1,7 @@
+/cpamc-simulator
+/dist/
+.env
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+CLAUDE.local.md

@@ -1,0 +1,5 @@
+*
+!go.mod
+!simulator.go
+!cmd/
+!cmd/**
