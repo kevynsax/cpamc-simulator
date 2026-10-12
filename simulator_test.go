@@ -87,6 +87,36 @@ func TestChat(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+func TestTranslationEcho(t *testing.T) {
+	s := server(t, "")
+	input, _ := json.Marshal(map[string]any{"action": "translate", "targetLanguage": "de", "subject": "Olá", "bodyHtml": `<p>Oi <span data-field="firstName">Nome</span> <a href="https://x.test/?a=1&amp;b=2">link</a> {{projectName}}</p>`, "text": ""})
+	messages, _ := json.Marshal([]any{map[string]string{"role": "system", "content": "task"}, map[string]string{"role": "user", "content": string(input)}})
+	body := `{"model":"gpt-5.6-luna","messages":` + string(messages) + `,"response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"subject":{"type":"string"},"bodyHtml":{"type":"string"},"text":{"type":"string"},"subjects":{"type":"array","items":{"type":"string"}}}}}}}`
+	w := request(t, s, "POST", "/v1/chat/completions", ClientKey, body)
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || len(out.Choices) != 1 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	var answer map[string]any
+	if err := json.Unmarshal([]byte(out.Choices[0].Message.Content), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer["subject"] != "[de] Olá" || answer["bodyHtml"] != `[de] <p>Oi <span data-field="firstName">Nome</span> <a href="https://x.test/?a=1&amp;b=2">link</a> {{projectName}}</p>` || answer["text"] != "Simulated value" {
+		t.Fatalf("%v", answer)
+	}
+	// Without a targetLanguage the generic fixture is unchanged.
+	plain := strings.Replace(body, `\"targetLanguage\":\"de\",`, "", 1)
+	w = request(t, s, "POST", "/v1/chat/completions", ClientKey, plain)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "[de]") || !strings.Contains(w.Body.String(), "Simulated value") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+}
 func TestImages(t *testing.T) {
 	s := server(t, "")
 	w := request(t, s, "POST", "/v1/images/generations", ClientKey, `{"model":"gpt-image-2-5","prompt":"fixture","n":2}`)

@@ -224,6 +224,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "unsupported_schema")
 			return
 		}
+		echoTranslation(value, req.Messages)
 		b, _ := json.Marshal(value)
 		content = string(b)
 	} else if req.ResponseFormat.Type == "json_object" {
@@ -439,6 +440,38 @@ func orderedChoiceKeys(raw json.RawMessage) ([]string, error) {
 		return nil, fmt.Errorf("choice options are empty")
 	}
 	return keys, nil
+}
+
+// echoTranslation fills a translation-shaped answer (the last user message is a JSON object with a
+// "targetLanguage") from the request itself: each top-level string the schema asks for that the input
+// also carries, non-empty, comes back as "[<targetLanguage>] <input>". Markup, URLs and placeholders
+// stay byte-identical so callers' lossless checks pass; the text is still not a translation.
+func echoTranslation(value any, messages []json.RawMessage) {
+	answer, ok := value.(map[string]any)
+	if !ok || len(messages) == 0 {
+		return
+	}
+	var last struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(messages[len(messages)-1], &last) != nil || last.Role != "user" {
+		return
+	}
+	var input map[string]any
+	if json.Unmarshal([]byte(last.Content), &input) != nil {
+		return
+	}
+	target, _ := input["targetLanguage"].(string)
+	if target == "" || len(target) > 16 {
+		return
+	}
+	for key, current := range answer {
+		source, isString := input[key].(string)
+		if _, wanted := current.(string); wanted && isString && strings.TrimSpace(source) != "" {
+			answer[key] = "[" + target + "] " + source
+		}
+	}
 }
 
 // schemaSample supports the small, local JSON-schema subset used in fixtures.
