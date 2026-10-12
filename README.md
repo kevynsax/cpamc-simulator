@@ -36,11 +36,11 @@ curl http://127.0.0.1:8317/v1/chat/completions \
 
 ## Supported contracts and limits
 
-- `GET /v1/models`: fixed text, image and Jev model catalog.
+- `GET /v1/models`: fixed text, image and Jev model catalog. Image ids match ai-api (`gpt-image-2.5`, `grok-imagine-image-2.0`, `meta/muse-image-1.0`, `gemini-3.1-flash-image`) and also the dashed aliases.
 - `GET /v1/quota/view`: cached fake Codex Plus quota, never real account identities.
 - `GET /v8/management/credentials`, `GET /v8/management/custom/quota/credentials`: fake credential metadata only.
-- `POST /v1/chat/completions`: fixed text, SSE including usage and `[DONE]`, `json_object` translation fixtures, and a bounded subset of `json_schema` fixtures (types, properties, arrays, enum, const and basic lengths/bounds), capped at 1,024 generated nodes. Translation-shaped `json_schema` requests (the last user message is a JSON object with `targetLanguage`) echo each requested top-level string the input also carries as `[<targetLanguage>] <input>`, so markup, URLs and placeholders stay byte-identical. Unsupported schemas fail explicitly. Fixture content is **not** a real translation or completion.
-- `POST /v1/images/generations`, `POST /v1/images/edits`: valid 256px checkerboard PNGs, not prompt-based generation; requested dimensions and quality do not affect the placeholder. Reference images are discarded, not edited. Chat image models return the same placeholder as a data URL.
+- `POST /v1/chat/completions`: fixed text, SSE including usage and `[DONE]`, `json_object` translation fixtures, and a bounded subset of `json_schema` fixtures (types, properties, arrays, enum, const and basic lengths/bounds), capped at 1,024 generated nodes. `json_schema` may be the schema itself or the OpenAI wrapper `{name, strict, schema}`. Translation-shaped `json_schema` requests (the last user message is a JSON object with `targetLanguage`) echo each requested top-level string the input also carries as `[<targetLanguage>] <input>`, so markup, URLs and placeholders stay byte-identical. Message content may be a string or an array of parts. Unsupported schemas fail explicitly. Fixture content is **not** a real translation or completion. The nightly-review schema returns `label: "on-topic"`.
+- `POST /v1/images/generations`, `POST /v1/images/edits`: valid 256px checkerboard PNGs (`b64_json`), not prompt-based generation; requested dimensions and quality do not affect the placeholder. Reference images are discarded, not edited. Chat image models (Gemini, including array content) return the same placeholder as `choices[0].message.images[0].image_url.url`.
 - `POST /v1/decisions`: deterministic canned answers, **not real judgments**, to exercise positive classification flows. Choice picks the first offered key in request order (`options` or native `criteria`) with one-hot probabilities and fake confidence 1. Noul returns `noul: 0.9`; Score returns `score: 0` with the first level selected, a legend, one-hot probabilities and fake confidence 1 (`levels` or native `criteria`). Legacy boolean/number questions return `value: true` / `value: 1`. State is ignored, never interpreted or reflected. The response and every answer carry `simulator: true`; reported cost is 0. Empty/malformed choice options or score levels fail with 400. Supports batches of up to 48. Never use these fake answers or confidence values for real safety, permissions or content approval.
 - `POST /v1/live`: honest `501`, no simulated WebRTC session.
 - `GET /live`, `GET /ready`, `GET /healthz`: health only, unauthenticated; business `/v1/live` is different.
@@ -54,8 +54,9 @@ Scenarios (`SIMULATOR_SCENARIO`): `healthy`, `low-quota` (99% consumed), `rate-l
 go test -race ./...
 go run ./cmd/cpamc-simulator
 # Release build (TeamCity, never GitHub Actions):
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t docker.io/kevynsax/cpamc-simulator:0.1.1 \
+VERSION=0.1.2 docker buildx build --platform linux/amd64,linux/arm64 \
+  --build-arg VERSION="$VERSION" \
+  -t "docker.io/kevynsax/cpamc-simulator:$VERSION" \
   -t docker.io/kevynsax/cpamc-simulator:latest --push .
 ```
 

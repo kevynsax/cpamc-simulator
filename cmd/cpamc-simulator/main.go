@@ -14,6 +14,9 @@ import (
 	simulator "github.com/kevynsax/cpamc-simulator"
 )
 
+// version is stamped at release: -ldflags "-X main.version=0.1.2". Dev builds stay "dev".
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		log.Print(err)
@@ -54,7 +57,7 @@ func run() error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	log.Printf("cpamc simulator listening on %s; no upstream calls, no real AI", addr)
+	log.Printf("cpamc simulator %s listening on %s; no upstream calls, no real AI", version, addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

@@ -132,8 +132,9 @@ type model struct{ id, owner string }
 var models = []model{
 	{"gpt-5.6-luna", "openai"}, {"gpt-5.6-sol", "openai"}, {"gpt-5.6-terra", "openai"},
 	{"gpt-image-2.5", "openai"}, {"gpt-image-2-5", "openai"},
-	{"grok-imagine-image", "xai"}, {"grok-imagine-image-2.0", "xai"},
-	{"meta/muse-image-1.0", "meta"}, {"gemini-3.1-flash-image", "google"},
+	{"grok-imagine-image", "xai"}, {"grok-imagine-image-2.0", "xai"}, {"grok-imagine-image-2-0", "xai"},
+	{"meta/muse-image-1.0", "meta"}, {"meta/muse-image-1-0", "meta"},
+	{"gemini-3.1-flash-image", "google"}, {"gemini-3-1-flash-image", "google"},
 	{"typesafe/jev-1.13", "openrouter"},
 }
 
@@ -145,6 +146,17 @@ func knownModel(id string) bool {
 	}
 	return false
 }
+
+// imageModel covers the catalog ids ai-api sends (dotted) and the dashed aliases some clients normalize to.
+func imageModel(id string) bool {
+	switch id {
+	case "gpt-image-2.5", "gpt-image-2-5", "grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-2-0", "meta/muse-image-1.0", "meta/muse-image-1-0", "gemini-3.1-flash-image", "gemini-3-1-flash-image":
+		return true
+	default:
+		return false
+	}
+}
+
 func respond(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -200,10 +212,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		Stream         bool              `json:"stream"`
 		Messages       []json.RawMessage `json:"messages"`
 		ResponseFormat struct {
-			Type       string `json:"type"`
-			JSONSchema struct {
-				Schema map[string]any `json:"schema"`
-			} `json:"json_schema"`
+			Type       string          `json:"type"`
+			JSONSchema json.RawMessage `json:"json_schema"`
 		} `json:"response_format"`
 	}
 	if !decode(w, r, &req) {
@@ -219,7 +229,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	content := "Simulated response — no AI provider was contacted."
 	if req.ResponseFormat.Type == "json_schema" {
-		value, err := schemaSample(req.ResponseFormat.JSONSchema.Schema, 0)
+		schema, err := responseSchema(req.ResponseFormat.JSONSchema)
+		if err != nil {
+			fail(w, 400, "unsupported_schema")
+			return
+		}
+		value, err := schemaSample(schema, 0)
 		if err != nil {
 			fail(w, 400, "unsupported_schema")
 			return
@@ -231,8 +246,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		content = `{"en-US":"Simulated translation","es":"Traducción simulada","fr":"Traduction simulée","de":"Simulierte Übersetzung"}`
 	}
 	message := map[string]any{"role": "assistant", "content": content}
-	if strings.Contains(req.Model, "image") {
-		message["images"] = []any{map[string]any{"image_url": map[string]string{"url": "data:image/png;base64," + s.png}}}
+	if imageModel(req.Model) {
+		// Chat image models (Gemini) answer with a data URL, not /images/generations.
+		// The bytes are the same placeholder PNG; the prompt is not interpreted.
+		message["images"] = []any{map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64," + s.png}}}
 	}
 	usage := struct {
 		Prompt     int `json:"prompt_tokens"`
@@ -315,7 +332,7 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 	} else if !decode(w, r, &req) {
 		return
 	}
-	if !knownModel(req.Model) || !strings.Contains(req.Model, "image") {
+	if !imageModel(req.Model) {
 		fail(w, 400, "unknown_model")
 		return
 	}
@@ -472,6 +489,38 @@ func echoTranslation(value any, messages []json.RawMessage) {
 			answer[key] = "[" + target + "] " + source
 		}
 	}
+}
+
+// responseSchema accepts either a bare schema or the OpenAI wrapper
+// {name, strict, schema}. Unknown wrapper keys are rejected.
+func responseSchema(raw json.RawMessage) (map[string]any, error) {
+	var schema map[string]any
+	if json.Unmarshal(raw, &schema) != nil || len(schema) == 0 {
+		return nil, fmt.Errorf("json_schema must be an object")
+	}
+	nested, wrapped := schema["schema"].(map[string]any)
+	if !wrapped {
+		return schema, nil
+	}
+	for key := range schema {
+		switch key {
+		case "name", "strict", "schema", "description":
+		default:
+			return nil, fmt.Errorf("unsupported json_schema field")
+		}
+	}
+	if name, ok := schema["name"]; ok {
+		text, _ := name.(string)
+		if strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("json_schema name must be a string")
+		}
+	}
+	if strict, ok := schema["strict"]; ok {
+		if _, isBool := strict.(bool); !isBool {
+			return nil, fmt.Errorf("json_schema strict must be a boolean")
+		}
+	}
+	return nested, nil
 }
 
 // schemaSample supports the small, local JSON-schema subset used in fixtures.

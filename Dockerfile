@@ -1,11 +1,12 @@
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod ./
 COPY simulator.go ./
 COPY cmd ./cmd
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /cpamc-simulator ./cmd/cpamc-simulator
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /cpamc-simulator ./cmd/cpamc-simulator
 
 FROM scratch
 LABEL org.opencontainers.image.source="https://github.com/kevynsax/cpamc-simulator" \

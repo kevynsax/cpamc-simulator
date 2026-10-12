@@ -70,7 +70,8 @@ func TestChat(t *testing.T) {
 	}{
 		{`{"model":"gpt-5.6-luna","messages":[{}]}`, 200, "Simulated response"},
 		{`{"model":"gpt-5.6-luna","messages":[{}],"stream":true}`, 200, "data: [DONE]"},
-		{`{"model":"gemini-3.1-flash-image","messages":[{}]}`, 200, "data:image/png;base64,"},
+		{`{"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":[{"type":"text","text":"redraw"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBOR"}}]}]}`, 200, "data:image/png;base64,"},
+		{`{"model":"gpt-5.6-luna","messages":[{}],"response_format":{"type":"json_schema","json_schema":{"name":"verdict","strict":true,"schema":{"type":"object","additionalProperties":false,"required":["label","confidence","reason"],"properties":{"label":{"type":"string","enum":["on-topic","off-topic","abuse"]},"confidence":{"type":"number"},"reason":{"type":"string"}}}}}}`, 200, `\"label\":\"on-topic\"`},
 		{`{"model":"gpt-5.6-luna","messages":[{}],"response_format":{"type":"json_object"}}`, 200, "Simulated translation"},
 		{`{"model":"gpt-5.6-luna","messages":[{}],"response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"rows":{"type":"array"},"ok":{"type":"boolean"}}}}}}`, 200, `\"rows\":[]`},
 		{`{"model":"gpt-5.6-luna","messages":[{}],"response_format":{"type":"json_schema","json_schema":{"schema":{"$ref":"x"}}}}`, 400, "unsupported_schema"},
@@ -119,7 +120,7 @@ func TestTranslationEcho(t *testing.T) {
 }
 func TestImages(t *testing.T) {
 	s := server(t, "")
-	w := request(t, s, "POST", "/v1/images/generations", ClientKey, `{"model":"gpt-image-2-5","prompt":"fixture","n":2}`)
+	w := request(t, s, "POST", "/v1/images/generations", ClientKey, `{"model":"gpt-image-2.5","prompt":"fixture","n":2,"size":"1536x1024","quality":"low"}`)
 	var out struct {
 		Data []struct {
 			B64 string `json:"b64_json"`
@@ -135,7 +136,7 @@ func TestImages(t *testing.T) {
 	}
 	var b bytes.Buffer
 	form := multipart.NewWriter(&b)
-	_ = form.WriteField("model", "gpt-image-2-5")
+	_ = form.WriteField("model", "grok-imagine-image-2.0")
 	_ = form.WriteField("prompt", "fixture")
 	file, _ := form.CreateFormFile("image", "reference.png")
 	_, _ = file.Write(raw)
@@ -148,7 +149,12 @@ func TestImages(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	for _, body := range []string{`{"model":"gpt-image-2-5"}`, `{"model":"bad","prompt":"fixture"}`, `{"model":"gpt-image-2-5","prompt":"fixture","n":4}`} {
+	for _, model := range []string{"gpt-image-2.5", "grok-imagine-image-2.0", "meta/muse-image-1.0"} {
+		if w := request(t, s, "POST", "/v1/images/generations", ClientKey, `{"model":"`+model+`","prompt":"fixture"}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"b64_json":"iVBOR`) {
+			t.Fatal(model, w.Code, w.Body.String())
+		}
+	}
+	for _, body := range []string{`{"model":"gpt-image-2.5"}`, `{"model":"bad","prompt":"fixture"}`, `{"model":"gpt-5.6-luna","prompt":"fixture"}`, `{"model":"gpt-image-2.5","prompt":"fixture","n":4}`} {
 		if w := request(t, s, "POST", "/v1/images/generations", ClientKey, body); w.Code != 400 {
 			t.Fatal(w.Code)
 		}
